@@ -339,7 +339,6 @@ services:
 
   love:
     image: hardcoreeng/love:${HULY_VERSION}
-    container_name: love
     ports:
       - 8096:8096
     environment:
