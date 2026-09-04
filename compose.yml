@@ -23,8 +23,6 @@ services:
     restart: unless-stopped
     env_file:
       - .env.cloudflare
-    environment:
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
     command: tunnel run
     volumes:
       - ./cloudflared:/etc/cloudflared:ro
