@@ -64,6 +64,12 @@ if [ "$QUICK" == true ]; then
     _VOLUME_CR_DATA_PATH=""
     _VOLUME_CR_CERTS_PATH=""
     _VOLUME_REDPANDA_PATH=""
+    _EMAIL_FROM="${EMAIL_FROM}"
+    _SMTP_HOST="${SMTP_HOST}"
+    _SMTP_PORT="${SMTP_PORT:-587}"
+    _SMTP_USERNAME="${SMTP_USERNAME}"
+    _SMTP_PASSWORD="${SMTP_PASSWORD}"
+    _SMTP_TLS_MODE="${SMTP_TLS_MODE:-upgrade}"
 else
 
 if [ -f "$CONFIG_FILE" ]; then
@@ -239,6 +245,48 @@ echo -e "\n\033[1;34mDocker Volume Configuration:\033[0m"
         _VOLUME_REDPANDA_PATH="${input:-${VOLUME_REDPANDA_PATH}}"
     fi
 
+    # SMTP Email Configuration
+    echo -e "\n\033[1;34mSMTP Email Configuration:\033[0m"
+    echo "Configure an external SMTP server for user invites, signups, and notifications (optional)."
+    read -p "Enter SMTP server host (leave empty to skip) [current: ${SMTP_HOST:-none}]: " input
+    if [[ "$input" == "none" ]]; then
+        _SMTP_HOST=""
+    else
+        _SMTP_HOST="${input:-${SMTP_HOST}}"
+    fi
+
+    if [[ -n "$_SMTP_HOST" ]]; then
+        read -p "Enter SMTP port [current: ${SMTP_PORT:-587}]: " input
+        _SMTP_PORT="${input:-${SMTP_PORT:-587}}"
+
+        read -p "Enter sender email address (EMAIL_FROM) [current: ${EMAIL_FROM:-noreply@${_HOST_ADDRESS}}]: " input
+        _EMAIL_FROM="${input:-${EMAIL_FROM:-noreply@${_HOST_ADDRESS}}}"
+
+        read -p "Enter SMTP username (leave empty if none) [current: ${SMTP_USERNAME:-none}]: " input
+        if [[ "$input" == "none" ]]; then
+            _SMTP_USERNAME=""
+        else
+            _SMTP_USERNAME="${input:-${SMTP_USERNAME}}"
+        fi
+
+        read -s -p "Enter SMTP password (leave empty to keep current): " input
+        echo ""
+        if [[ -n "$input" ]]; then
+            _SMTP_PASSWORD="$input"
+        else
+            _SMTP_PASSWORD="${SMTP_PASSWORD}"
+        fi
+
+        read -p "Enter SMTP TLS mode (upgrade [STARTTLS], secure [SSL], ignore) [current: ${SMTP_TLS_MODE:-upgrade}]: " input
+        _SMTP_TLS_MODE="${input:-${SMTP_TLS_MODE:-upgrade}}"
+    else
+        _EMAIL_FROM="${EMAIL_FROM}"
+        _SMTP_PORT="${SMTP_PORT:-587}"
+        _SMTP_USERNAME="${SMTP_USERNAME}"
+        _SMTP_PASSWORD="${SMTP_PASSWORD}"
+        _SMTP_TLS_MODE="${SMTP_TLS_MODE:-upgrade}"
+    fi
+
 fi # End of non-quick mode
 
 if [ ! -f .huly.secret ] || [ "$SECRET" == true ]; then
@@ -298,6 +346,12 @@ export COCKROACH_SECRET=$(cat .cr.secret)
 export REDPANDA_SECRET=$(cat .rp.secret)
 export PUSH_PUBLIC_KEY=$(cat .vapid_pub.secret 2>/dev/null || true)
 export PUSH_PRIVATE_KEY=$(cat .vapid_priv.secret 2>/dev/null || true)
+export EMAIL_FROM="${_EMAIL_FROM:-${EMAIL_FROM}}"
+export SMTP_HOST="${_SMTP_HOST:-${SMTP_HOST}}"
+export SMTP_PORT="${_SMTP_PORT:-${SMTP_PORT:-587}}"
+export SMTP_USERNAME="${_SMTP_USERNAME:-${SMTP_USERNAME}}"
+export SMTP_PASSWORD="${_SMTP_PASSWORD:-${SMTP_PASSWORD}}"
+export SMTP_TLS_MODE="${_SMTP_TLS_MODE:-${SMTP_TLS_MODE:-upgrade}}"
 
 envsubst < .template.huly.conf > $CONFIG_FILE
 if [ ! -L ".env" ] || [ "$(readlink .env)" != "$CONFIG_FILE" ]; then
@@ -325,6 +379,12 @@ echo -e "Files Volume: \033[1;32m${_VOLUME_FILES_PATH:-Docker named volume}\033[
 echo -e "CockroachDB Volume: \033[1;32m${_VOLUME_CR_DATA_PATH:-Docker named volume}\033[0m"
 echo -e "CockroachDB Certs Volume: \033[1;32m${_VOLUME_CR_CERTS_PATH:-Docker named volume}\033[0m"
 echo -e "Redpanda Volume: \033[1;32m${_VOLUME_REDPANDA_PATH:-Docker named volume}\033[0m"
+if [[ -n "$_SMTP_HOST" ]]; then
+    echo -e "SMTP Service: \033[1;32mEnabled (${_SMTP_HOST}:${_SMTP_PORT:-587})\033[0m"
+    echo -e "Email Sender: \033[1;32m${_EMAIL_FROM}\033[0m"
+else
+    echo -e "SMTP Service: \033[1;33mNot configured (disabled)\033[0m"
+fi
 
 echo -e "\n\033[1;32mGenerating containerized nginx.conf...\033[0m"
 ./nginx.sh --recreate --no-prompt
