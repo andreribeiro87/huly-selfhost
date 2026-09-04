@@ -269,7 +269,6 @@ services:
       - huly_net
   mail:
     image: hardcoreeng/mail:${HULY_VERSION}
-    container_name: mail
     ports:
       - 8097:8097
     environment:
@@ -286,7 +285,6 @@ services:
 
   notification:
     image: hardcoreeng/notification:${HULY_VERSION}
-    container_name: notification
     ports:
       - 8091:8091
     environment:
@@ -301,7 +299,6 @@ services:
 
   calendar:
     image: hardcoreeng/calendar:${HULY_VERSION}
-    container_name: calendar
     ports:
       - 8095:8095
     environment:
@@ -318,7 +315,6 @@ services:
 
   github:
     image: hardcoreeng/github:${HULY_VERSION}
-    container_name: github
     ports:
       - 3500:3500
     environment:
