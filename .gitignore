@@ -8,3 +8,10 @@ huly_v7.conf
 .cr.secret
 .rp.secret
 .idea
+.env
+certs/*.pem
+certs/*.key
+certs/*.crt
+cloudflared/*.json
+
+.env.cloudflare
