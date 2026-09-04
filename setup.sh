@@ -5,6 +5,7 @@ CONFIG_FILE="huly_v7.conf"
 RESET_VOLUMES=false
 SECRET=false
 QUICK=false
+NO_START=false
 
 for arg in "$@"; do
     case $arg in
@@ -17,12 +18,16 @@ for arg in "$@"; do
         --quick)
             QUICK=true
             ;;
+        --no-start)
+            NO_START=true
+            ;;
         --help)
             echo "Usage: $0 [OPTIONS]"
             echo "Options:"
             echo "  --secret         Generate a new secret key"
             echo "  --reset-volumes  Reset all volume paths to default Docker named volumes"
             echo "  --quick          Quick setup with defaults (localhost:8087, no SSL, auto-start)"
+            echo "  --no-start       Generate configuration and nginx.conf without starting containers"
             echo "  --help           Show this help message"
             exit 0
             ;;
@@ -51,7 +56,9 @@ if [ "$QUICK" == true ]; then
     echo -e "\033[1;34m🚀 Quick setup mode - using defaults for fast verification\033[0m"
     _HOST_ADDRESS="localhost:8087"
     _HTTP_PORT="8087"
+    _HTTPS_PORT=""
     _SECURE=""
+    _EXTERNAL_SSL=""
     _VOLUME_ELASTIC_PATH=""
     _VOLUME_FILES_PATH=""
     _VOLUME_CR_DATA_PATH=""
@@ -93,11 +100,11 @@ while true; do
     fi
 done
 
-echo "$_HOST_ADDRESS $HOST_ADDRESS $_HTTP_PORT $HTTP_PORT"
-
 if [[ "$_HOST_ADDRESS" == "localhost" || "$_HOST_ADDRESS" == "127.0.0.1" || "$_HOST_ADDRESS" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}:?$ ]]; then
     _HOST_ADDRESS="${_HOST_ADDRESS%:}:${_HTTP_PORT}"
-    SECURE=""
+    _SECURE=""
+    _EXTERNAL_SSL=""
+    _HTTPS_PORT=""
 else
     while true; do
         if [[ -n "$SECURE" ]]; then
@@ -110,11 +117,51 @@ else
         read -p "Will you serve Huly over SSL? (y/n) [${prompt_type}: ${prompt_value}]: " input
         case "${input}" in
             [Yy]* )
-                _SECURE="true"; break;;
+                _SECURE="true"
+                while true; do
+                    if [[ "$EXTERNAL_SSL" == "true" ]]; then
+                        ext_prompt="current: Yes"
+                    else
+                        ext_prompt="default: No"
+                    fi
+                    read -p "Is SSL terminated by a Cloudflare Tunnel or external proxy (no local certs)? (y/n) [${ext_prompt}]: " ext_input
+                    case "${ext_input}" in
+                        [Yy]* )
+                            _EXTERNAL_SSL="true"
+                            _HTTPS_PORT=""
+                            break;;
+                        [Nn]* )
+                            _EXTERNAL_SSL=""
+                            _HTTPS_PORT="443"
+                            break;;
+                        "" )
+                            if [[ "$EXTERNAL_SSL" == "true" ]]; then
+                                _EXTERNAL_SSL="true"
+                                _HTTPS_PORT=""
+                            else
+                                _EXTERNAL_SSL=""
+                                _HTTPS_PORT="443"
+                            fi
+                            break;;
+                        * )
+                            echo "Invalid input. Please enter Y or N.";;
+                    esac
+                done
+                break;;
             [Nn]* )
-                _SECURE=""; break;;
+                _SECURE=""
+                _EXTERNAL_SSL=""
+                _HTTPS_PORT=""
+                break;;
             "" )
-                _SECURE="${SECURE:+true}"; break;;
+                _SECURE="${SECURE:+true}"
+                _EXTERNAL_SSL="${EXTERNAL_SSL}"
+                if [[ -n "$_SECURE" && "$_EXTERNAL_SSL" != "true" ]]; then
+                    _HTTPS_PORT="443"
+                else
+                    _HTTPS_PORT=""
+                fi
+                break;;
             * )
                 echo "Invalid input. Please enter Y or N.";;
         esac
@@ -214,7 +261,9 @@ fi
 
 export HOST_ADDRESS=$_HOST_ADDRESS
 export SECURE=$_SECURE
+export EXTERNAL_SSL=$_EXTERNAL_SSL
 export HTTP_PORT=$_HTTP_PORT
+export HTTPS_PORT=$_HTTPS_PORT
 export HTTP_BIND=$HTTP_BIND
 export TITLE=${TITLE:-Huly}
 export DEFAULT_LANGUAGE=${DEFAULT_LANGUAGE:-en}
@@ -232,6 +281,10 @@ export COCKROACH_SECRET=$(cat .cr.secret)
 export REDPANDA_SECRET=$(cat .rp.secret)
 
 envsubst < .template.huly.conf > $CONFIG_FILE
+if [ ! -L ".env" ] || [ "$(readlink .env)" != "$CONFIG_FILE" ]; then
+    rm -f .env
+    cp "$CONFIG_FILE" .env
+fi
 
 source "$CONFIG_FILE"
 export CR_DB_URL=$CR_DB_URL
@@ -240,7 +293,11 @@ echo -e "\n\033[1;34mConfiguration Summary:\033[0m"
 echo -e "Host Address: \033[1;32m$_HOST_ADDRESS\033[0m"
 echo -e "HTTP Port: \033[1;32m$_HTTP_PORT\033[0m"
 if [[ -n "$SECURE" ]]; then
-    echo -e "SSL Enabled: \033[1;32mYes\033[0m"
+    if [[ "$_EXTERNAL_SSL" == "true" ]]; then
+        echo -e "SSL Mode: \033[1;32mCloudflare Tunnel / External Reverse Proxy (HTTP port ${_HTTP_PORT} -> external HTTPS)\033[0m"
+    else
+        echo -e "SSL Enabled: \033[1;32mYes (Port ${_HTTPS_PORT:-443} in Nginx container)\033[0m"
+    fi
 else
     echo -e "SSL Enabled: \033[1;31mNo\033[0m"
 fi
@@ -250,8 +307,14 @@ echo -e "CockroachDB Volume: \033[1;32m${_VOLUME_CR_DATA_PATH:-Docker named volu
 echo -e "CockroachDB Certs Volume: \033[1;32m${_VOLUME_CR_CERTS_PATH:-Docker named volume}\033[0m"
 echo -e "Redpanda Volume: \033[1;32m${_VOLUME_REDPANDA_PATH:-Docker named volume}\033[0m"
 
-if [ "$QUICK" == true ]; then
-    echo -e "\033[1;32mRunning 'docker compose up -d' now...\033[0m"
+echo -e "\n\033[1;32mGenerating containerized nginx.conf...\033[0m"
+./nginx.sh --recreate --no-prompt
+
+if [ "$NO_START" == true ]; then
+    echo -e "\n\033[1;33mSkipping container startup (--no-start specified).\033[0m"
+    echo "You can start Huly anytime with: docker compose up -d"
+elif [ "$QUICK" == true ]; then
+    echo -e "\n\033[1;32mRunning 'docker compose up -d' now...\033[0m"
     docker compose up -d
 else
     read -p "Do you want to run 'docker compose up -d' now to start Huly? (Y/n): " RUN_DOCKER
@@ -266,19 +329,21 @@ else
     esac
 fi
 
-echo -e "\033[1;32mSetup is complete!\n Generating nginx.conf...\033[0m"
-./nginx.sh
-
-if [ "$QUICK" == true ]; then
-    echo ""
-    echo -e "\033[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
-    echo -e "\033[1;32m✅ Quick setup complete!\033[0m"
-    echo -e "\033[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
-    echo ""
-    echo -e "🌐 Access Huly at: \033[1;36mhttp://localhost:8087\033[0m"
-    echo ""
-    echo -e "⏳ Wait ~60 seconds for all services to initialize..."
-    echo -e "📊 Check status with: \033[1;33mdocker compose ps\033[0m"
-    echo -e "📋 View logs with:   \033[1;33mdocker compose logs -f\033[0m"
-    echo ""
+echo ""
+echo -e "\033[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
+echo -e "\033[1;32m✅ Setup complete!\033[0m"
+echo -e "\033[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
+echo ""
+echo -e "🌐 Access Huly at: \033[1;36mhttp${SECURE:+s}://${_HOST_ADDRESS}\033[0m"
+echo ""
+echo -e "ℹ️  Reverse proxy runs in the \033[1;33mnginx\033[0m container (no host Nginx required)."
+echo -e "⏳ Wait ~60 seconds for all services to initialize..."
+echo -e "📊 Check status with: \033[1;33mdocker compose ps\033[0m"
+echo -e "📋 View logs with:   \033[1;33mdocker compose logs -f\033[0m"
+if [[ -n "$SECURE" && "$_EXTERNAL_SSL" != "true" ]]; then
+    echo -e "🔒 SSL Certificates: Place trusted fullchain.pem & privkey.pem in ./certs/"
+    echo -e "   Then reload with:  \033[1;33mdocker compose exec nginx nginx -s reload\033[0m"
+elif [[ "$_EXTERNAL_SSL" == "true" ]]; then
+    echo -e "☁️  Cloudflare Tunnel: Point your tunnel service to \033[1;33mhttp://localhost:${_HTTP_PORT:-80}\033[0m (or http://nginx:80)"
 fi
+echo ""

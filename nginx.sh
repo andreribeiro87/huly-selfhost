@@ -1,78 +1,118 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
+# Source configuration file (.env first, then huly_v7.conf)
 if [ -f ".env" ]; then
     source ".env"
+elif [ -f "huly_v7.conf" ]; then
+    source "huly_v7.conf"
 fi
 
-# Check for --recreate flag
 RECREATE=false
-if [ "$1" == "--recreate" ]; then
-    RECREATE=true
+NO_PROMPT=false
+
+for arg in "$@"; do
+    case $arg in
+        --recreate)
+            RECREATE=true
+            ;;
+        --no-prompt|-y)
+            NO_PROMPT=true
+            ;;
+    esac
+done
+
+# Extract domain/server name from HOST_ADDRESS (strip port if present)
+RAW_HOST="${HOST_ADDRESS:-localhost}"
+SERVER_NAME=$(echo "$RAW_HOST" | awk -F: '{print $1}')
+if [ -z "$SERVER_NAME" ] || [ "$SERVER_NAME" == "0.0.0.0" ]; then
+    SERVER_NAME="_"
 fi
 
-# Handle nginx.conf recreation or updating
-if [ "$RECREATE" == true ]; then
-    cp .template.nginx.conf nginx.conf
-    echo "nginx.conf has been recreated from the template."
-else
-    if [ ! -f "nginx.conf" ]; then
-        echo "nginx.conf not found, creating from template."
-        cp .template.nginx.conf nginx.conf
-    else
-        echo "nginx.conf already exists. Only updating server_name, listen, and proxy_pass."
-        echo "Run with --recreate to fully overwrite nginx.conf."
-    fi
-fi
-
-# Update server_name and proxy_pass using sed
-sed -i.bak "s|server_name .*;|server_name ${HOST_ADDRESS};|" ./nginx.conf
-sed -i.bak "s|proxy_pass .*;|proxy_pass http://${HTTP_BIND:-127.0.0.1}:${HTTP_PORT};|" ./nginx.conf
-
-# Update listen directive to either port 80 or 443, while preserving IP address
-if [[ -n "$SECURE" ]]; then
-    # Secure (use port 443 and add 'ssl')
-    sed -i.bak -E 's|(listen )(.*:)?([0-9]+)?;|\1443 ssl;|' ./nginx.conf
-    echo "Serving over SSL. Make sure to add your SSL certificates."
-else
-    # Non-secure (use port 80 and remove 'ssl')
-    sed -i.bak -E "s|(listen )(.*:)?[0-9]+ ssl;|\1\280;|" ./nginx.conf
-    sed -i.bak -E "s|(listen )(.*:)?([0-9]+)?;|\1\280;|" ./nginx.conf
-fi
-
-# Extract IP address for redirect configuration
-IP_ADDRESS=$(grep -oE 'listen \K[^:]+(?=:[0-9]+ ssl;)' nginx.conf)
-
-# Remove HTTP to HTTPS redirect server block if SSL is enabled
-if [[ -z "$SECURE" ]]; then
-    echo "Enabling SSL; removing HTTP to HTTPS redirect block..."
-    # Remove the entire server block for port 80
-    if grep -q 'return 301 https://\$host\$request_uri;' nginx.conf; then
-        sed -i.bak '/# !/,/!/d' nginx.conf
-    fi
-else
-    # Check if the HTTP to HTTPS redirect block already exists
-    if grep -q 'return 301 https://\$host\$request_uri;' nginx.conf; then
-        sed -i.bak '/# !/,/!/d' nginx.conf
+if [ "$RECREATE" == true ] || [ ! -f "nginx.conf" ]; then
+    if [ ! -f ".template.nginx.conf" ]; then
+        echo -e "\033[1;31mError: .template.nginx.conf not found!\033[0m"
+        exit 1
     fi
 
-    echo "Creating HTTP to HTTPS redirect..."
-    echo -e "# ! DO NOT REMOVE COMMENT
-# DO NOT MODIFY, CHANGES WILL BE OVERWRITTEN
-server {
-    listen ${IP_ADDRESS:+${IP_ADDRESS}:}80;
-    server_name ${HOST_ADDRESS};
+    echo "Generating container nginx.conf from template..."
+
+    if [[ -n "$SECURE" ]]; then
+        if [[ "$EXTERNAL_SSL" == "true" || "$CLOUDFLARE_TUNNEL" == "true" ]]; then
+            echo -e "Configuring containerized Nginx for \033[1;32mCloudflare Tunnel / External SSL\033[0m for ${SERVER_NAME} (HTTP port 80, external HTTPS)..."
+            REDIRECT_BLOCK=""
+            LISTEN_DIRECTIVE="80"
+            SSL_DIRECTIVES=""
+        else
+            echo -e "Configuring containerized Nginx with \033[1;32mSSL/TLS enabled\033[0m for ${SERVER_NAME}..."
+
+            mkdir -p certs
+            if [ ! -f "certs/fullchain.pem" ] || [ ! -f "certs/privkey.pem" ]; then
+                echo -e "\033[1;33mNotice: SSL certificates not found in ./certs/.\033[0m"
+                echo "Generating temporary self-signed certificate so Nginx container can start..."
+                openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+                    -keyout certs/privkey.pem \
+                    -out certs/fullchain.pem \
+                    -subj "/CN=${SERVER_NAME}" >/dev/null 2>&1
+                echo -e "\033[1;32mCreated temporary self-signed cert in ./certs/.\033[0m"
+                echo "Remember to replace ./certs/fullchain.pem and ./certs/privkey.pem with your trusted certificates."
+            fi
+
+            REDIRECT_BLOCK="server {
+    listen 80;
+    server_name ${SERVER_NAME};
     return 301 https://\$host\$request_uri;
 }
-# DO NOT REMOVE COMMENT !" >> ./nginx.conf
+
+"
+            LISTEN_DIRECTIVE="443 ssl"
+            SSL_DIRECTIVES="    http2 on;
+    ssl_certificate /etc/nginx/certs/fullchain.pem;
+    ssl_certificate_key /etc/nginx/certs/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+"
+        fi
+    else
+        echo -e "Configuring containerized Nginx in \033[1;34mHTTP mode\033[0m for ${SERVER_NAME}..."
+        REDIRECT_BLOCK=""
+        LISTEN_DIRECTIVE="80"
+        SSL_DIRECTIVES=""
+    fi
+
+    # Read template and substitute placeholders
+    CONFIG_CONTENT=$(cat .template.nginx.conf)
+    CONFIG_CONTENT="${CONFIG_CONTENT/__REDIRECT_BLOCK__/$REDIRECT_BLOCK}"
+    CONFIG_CONTENT="${CONFIG_CONTENT/__LISTEN__/$LISTEN_DIRECTIVE}"
+    CONFIG_CONTENT="${CONFIG_CONTENT/__SSL_DIRECTIVES__/$SSL_DIRECTIVES}"
+    CONFIG_CONTENT="${CONFIG_CONTENT/__SERVER_NAME__/$SERVER_NAME}"
+
+    echo "$CONFIG_CONTENT" > nginx.conf
+    echo -e "\033[1;32mnginx.conf generated successfully for containerized deployment.\033[0m"
+else
+    echo "nginx.conf already exists. Updating server_name..."
+    sed -i.bak "s|server_name .*;|server_name ${SERVER_NAME};|" ./nginx.conf
+    rm -f ./nginx.conf.bak
+    echo "Run with --recreate to regenerate nginx.conf from template."
 fi
 
-read -p "Do you want to run 'nginx -s reload' now to load your updated Huly config? (Y/n): " RUN_NGINX
-case "${RUN_NGINX:-Y}" in  
-    [Yy]* )  
-        echo -e "\033[1;32mRunning 'nginx -s reload' now...\033[0m"
-        sudo nginx -s reload
-        ;;
-    [Nn]* )
-        echo "You can run 'nginx -s reload' later to load your updated Huly config."
-        ;;
-esac
+# Check if nginx container is running and reload it if requested
+if command -v docker >/dev/null 2>&1 && docker compose ps --services --filter "status=running" 2>/dev/null | grep -q "^nginx$"; then
+    if [ "$NO_PROMPT" == true ]; then
+        echo -e "\033[1;32mReloading containerized Nginx...\033[0m"
+        docker compose exec nginx nginx -s reload
+    else
+        read -p "Nginx container is running. Reload Nginx configuration now? (Y/n): " RELOAD_CONTAINER
+        case "${RELOAD_CONTAINER:-Y}" in  
+            [Yy]* )  
+                echo -e "\033[1;32mReloading containerized Nginx...\033[0m"
+                docker compose exec nginx nginx -s reload
+                ;;
+            * )
+                echo "Configuration saved. You can reload Nginx later with: docker compose exec nginx nginx -s reload"
+                ;;
+        esac
+    fi
+else
+    echo "Nginx container is not currently running. It will use this config when started with 'docker compose up -d'."
+fi

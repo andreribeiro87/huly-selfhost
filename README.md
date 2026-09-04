@@ -93,26 +93,17 @@ Access Huly at **http://localhost:8087** (wait ~60 seconds for services to initi
 > [!NOTE]
 > Quick start is intended for local testing only. For production deployments, follow the full setup instructions below.
 
-## Installing `nginx` and `docker`
+## Installing `docker`
 
-First, update repositories cache:
+Install Docker and Docker Compose using the [recommended method](https://docs.docker.com/engine/install/ubuntu/) from the Docker website.
+Afterwards perform [post-installation steps](https://docs.docker.com/engine/install/linux-postinstall/). Pay attention to the 3rd step with `newgrp docker` command; it is needed for running Docker commands without `sudo`.
 
-```bash
-sudo apt update
-```
+> [!NOTE]
+> Huly includes its own containerized Nginx reverse proxy in `compose.yml`. You **do not** need to install or configure Nginx on your host system.
 
-Now, install `nginx`:
+## Clone the `huly-selfhost` repository and start Huly
 
-```bash
-sudo apt install nginx
-```
-
-Install docker using the [recommended method](https://docs.docker.com/engine/install/ubuntu/) from docker website.
-Afterwards perform [post-installation steps](https://docs.docker.com/engine/install/linux-postinstall/). Pay attention to 3rd step with `newgrp docker` command, it needed for correct execution in setup script.
-
-## Clone the `huly-selfhost` repository and configure `nginx`
-
-Next, let's clone the `huly-selfhost` repository and configure Huly.
+Next, clone the `huly-selfhost` repository and configure Huly:
 
 ```bash
 git clone https://github.com/hcengineering/huly-selfhost.git
@@ -120,28 +111,45 @@ cd huly-selfhost
 ./setup.sh
 ```
 
-This will generate a [huly_v7.conf](./huly_v7.conf) file with your chosen values and create your nginx config.
+This will:
+1. Prompt for your domain/IP, port, SSL settings, and volumes (or use `--quick` for local defaults).
+2. Generate your `.env` configuration file.
+3. Automatically generate the containerized `nginx.conf` (and temporary self-signed certificates in `./certs/` if SSL is selected and no certificates exist yet).
+4. Optionally start all containers with `docker compose up -d`.
 
-To add the generated configuration to your Nginx setup, run the following:
+### SSL / HTTPS Setup
 
+If you selected SSL (`SECURE=true`), place your trusted certificates in the `./certs` directory:
+- `./certs/fullchain.pem` (certificate chain)
+- `./certs/privkey.pem` (private key)
+
+Then reload the Nginx container:
 ```bash
-sudo ln -s $(pwd)/nginx.conf /etc/nginx/sites-enabled/huly.conf
+docker compose exec nginx nginx -s reload
 ```
 
-> [!NOTE]
-> If you change `HOST_ADDRESS`, `SECURE`, `HTTP_PORT` or `HTTP_BIND` be sure to update your [nginx.conf](./nginx.conf)
-> by running:
-> ```bash
-> ./nginx.sh
-> ```
->You can safely execute this script after adding your custom configurations like ssl. It will only overwrite the
-> necessary settings.
+### Changing Configuration
 
-Finally, let's reload `nginx` and start Huly with `docker compose`.
+If you change `HOST_ADDRESS`, `SECURE`, `HTTP_PORT`, or `HTTPS_PORT` in your `.env` file, regenerate the container's Nginx configuration by running:
+```bash
+./nginx.sh
+```
+If containers are running, this will also prompt you to reload Nginx.
+
+To stop or start Huly anytime, use standard Docker Compose commands from the project directory:
 
 ```bash
-sudo nginx -s reload
-sudo docker compose up -d
+# Start all services in the background
+docker compose up -d
+
+# Stop all services
+docker compose down
+
+# Check service status
+docker compose ps
+
+# View logs
+docker compose logs -f
 ```
 
 Now, launch your web browser and enjoy Huly! To stop all services, run `docker compose down` from the `huly-selfhost` project directory.
@@ -498,7 +506,11 @@ self-hosted Huly, perform the following steps:
         ...
     ```
 
-4. Uncomment love section in `.huly.nginx` file and reload nginx
+4. Uncomment love section in `nginx.conf` and reload the Nginx container:
+
+    ```bash
+    docker compose exec nginx nginx -s reload
+    ```
 
 Note that the `LIVEKIT_HOST` should include the protocol (`wss://` by default if using livekit cloud).
 
@@ -542,10 +554,10 @@ This mode does not require Redis and is suitable for single-node or small self-h
       ...
     ```
 
-4. Uncomment the `/_pulse` location in `.huly.nginx` and reload nginx:
+4. Uncomment the `/_pulse` location in `nginx.conf` and reload Nginx:
 
     ```bash
-    sudo nginx -s reload
+    docker compose exec nginx nginx -s reload
     ```
 
 5. Recreate and start the stack from the `huly-selfhost` folder:
@@ -604,7 +616,7 @@ Redis can be used as an alternative backend for HulyPulse – for example, in mu
         ...
     ```
 
-3. Uncomment print section in `.huly.nginx` file and reload nginx
+3. Uncomment print section in `nginx.conf` file and reload Nginx (`docker compose exec nginx nginx -s reload`)
 
 ## Export Service
 
@@ -635,7 +647,7 @@ front:
     ...
     - EXPORT_URL=https://${HOST_ADDRESS}/_export
 ```
-3. Uncomment `_export` route in `.huly.nginx`
+3. Uncomment `_export` route in `nginx.conf` and reload Nginx (`docker compose exec nginx nginx -s reload`)
 
 
 ## AI Service
@@ -698,7 +710,7 @@ Huly provides AI-powered chatbot that provides several services:
           - AI_BOT_URL=http://aibot:4010
         ...
     ```
-5. Uncomment aibot section in `.huly.nginx` file and reload nginx
+5. Uncomment aibot section in `nginx.conf` file and reload Nginx (`docker compose exec nginx nginx -s reload`)
 
 > [!NOTE]
 > You can also add the `AI_OPENAI_MODEL`, `AI_OPENAI_TRANSLATE_MODEL`, `AI_OPENAI_SUMMARY_MODEL` environment variables to the aibot service to use a different model, by default it uses `gpt-4o-mini` for all of them
@@ -902,7 +914,7 @@ github:
    ...
 ```
 
-3. Uncomment the github section in `.huly.nginx` file and reload nginx
+3. Uncomment the github section in `nginx.conf` file and reload Nginx (`docker compose exec nginx nginx -s reload`)
 
 4. Configure Callback URL and Setup URL (with redirect on update set) to your host: `http${SECURE:+s}://${HOST_ADDRESS}/github`
 
@@ -953,7 +965,7 @@ front:
   ...
 ```
 
-3. Uncomment the _telegram section in the .huly.nginx file.
+3. Uncomment the _telegram section in the `nginx.conf` file and reload Nginx (`docker compose exec nginx nginx -s reload`).
 
 ### Notifications Setup
 
