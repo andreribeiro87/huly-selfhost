@@ -333,6 +333,7 @@ export HTTP_BIND=$HTTP_BIND
 export TITLE=${TITLE:-Huly}
 export DEFAULT_LANGUAGE=${DEFAULT_LANGUAGE:-en}
 export LAST_NAME_FIRST=${LAST_NAME_FIRST:-true}
+export DISABLE_SIGNUP=${DISABLE_SIGNUP:-false}
 export CR_DATABASE=${CR_DATABASE:-defaultdb}
 export CR_USERNAME=${CR_USERNAME:-selfhost}
 export REDPANDA_ADMIN_USER=${REDPANDA_ADMIN_USER:-superadmin}
@@ -352,6 +353,21 @@ export SMTP_PORT="${_SMTP_PORT:-${SMTP_PORT:-587}}"
 export SMTP_USERNAME="${_SMTP_USERNAME:-${SMTP_USERNAME}}"
 export SMTP_PASSWORD="${_SMTP_PASSWORD:-${SMTP_PASSWORD}}"
 export SMTP_TLS_MODE="${_SMTP_TLS_MODE:-${SMTP_TLS_MODE:-upgrade}}"
+
+# Google Calendar Integration
+export GOOGLE_CALENDAR_CREDENTIALS="${GOOGLE_CALENDAR_CREDENTIALS}"
+
+# GitHub Integration
+if [ -f "github-private-key.pem" ]; then
+    export GITHUB_PRIVATE_KEY="$(cat github-private-key.pem)"
+else
+    export GITHUB_PRIVATE_KEY="${GITHUB_PRIVATE_KEY}"
+fi
+export GITHUB_APPID="${GITHUB_APPID}"
+export GITHUB_APP_SLUG="${GITHUB_APP_SLUG}"
+export GITHUB_CLIENTID="${GITHUB_CLIENTID}"
+export GITHUB_CLIENT_SECRET="${GITHUB_CLIENT_SECRET}"
+export GITHUB_WEBHOOK_SECRET="${GITHUB_WEBHOOK_SECRET}"
 
 envsubst < .template.huly.conf > $CONFIG_FILE
 if [ ! -L ".env" ] || [ "$(readlink .env)" != "$CONFIG_FILE" ]; then
@@ -384,6 +400,16 @@ if [[ -n "$_SMTP_HOST" ]]; then
     echo -e "Email Sender: \033[1;32m${_EMAIL_FROM}\033[0m"
 else
     echo -e "SMTP Service: \033[1;33mNot configured (disabled)\033[0m"
+fi
+if [[ -n "$GOOGLE_CALENDAR_CREDENTIALS" ]]; then
+    echo -e "Google Calendar: \033[1;32mConfigured\033[0m"
+else
+    echo -e "Google Calendar: \033[1;33mNot configured\033[0m"
+fi
+if [[ -n "$GITHUB_APPID" ]]; then
+    echo -e "GitHub Integration: \033[1;32mConfigured (App ID: $GITHUB_APPID)\033[0m"
+else
+    echo -e "GitHub Integration: \033[1;33mNot configured\033[0m"
 fi
 
 echo -e "\n\033[1;32mGenerating containerized nginx.conf...\033[0m"

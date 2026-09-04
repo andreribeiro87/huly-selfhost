@@ -13,6 +13,9 @@ huly_v7.conf
 certs/*.pem
 certs/*.key
 certs/*.crt
+*.pem
+*.key
+github-private-key.pem
 cloudflared/*.json
 
 .env.cloudflare

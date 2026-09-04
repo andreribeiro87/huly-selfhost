@@ -213,6 +213,9 @@ services:
       - ACCOUNT_PORT=3000
       - QUEUE_CONFIG=redpanda:9092
       - MAIL_URL=http://mail:8097
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENTID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - DISABLE_SIGNUP=${DISABLE_SIGNUP:-false}
     restart: unless-stopped
     networks:
       - huly_net
@@ -257,6 +260,10 @@ services:
       - DESKTOP_UPDATES_CHANNEL=${DESKTOP_CHANNEL}
       - DISABLED_FEATURES=auto-translate,mailboxes
       - PUSH_PUBLIC_KEY=${PUSH_PUBLIC_KEY}
+      - GITHUB_URL=http${SECURE:+s}://${HOST_ADDRESS}/_github
+      - GITHUB_APP=${GITHUB_APP_SLUG}
+      - GITHUB_CLIENTID=${GITHUB_CLIENTID}
+      - DISABLE_SIGNUP=${DISABLE_SIGNUP:-false}
     restart: unless-stopped
     networks:
       - huly_net
@@ -288,6 +295,45 @@ services:
       - STATS_URL=http://stats:4900
       - PUSH_PUBLIC_KEY=${PUSH_PUBLIC_KEY}
       - PUSH_PRIVATE_KEY=${PUSH_PRIVATE_KEY}
+    restart: unless-stopped
+    networks:
+      - huly_net
+
+  calendar:
+    image: hardcoreeng/calendar:${HULY_VERSION}
+    container_name: calendar
+    ports:
+      - 8095:8095
+    environment:
+      - PORT=8095
+      - ACCOUNTS_URL=http://account:3000
+      - STATS_URL=http://stats:4900
+      - SECRET=${SECRET}
+      - KVS_URL=http://kvs:8094
+      - WATCH_URL=http${SECURE:+s}://${HOST_ADDRESS}/_calendar/push
+      - Credentials=${GOOGLE_CALENDAR_CREDENTIALS}
+    restart: unless-stopped
+    networks:
+      - huly_net
+
+  github:
+    image: hardcoreeng/github:${HULY_VERSION}
+    container_name: github
+    ports:
+      - 3500:3500
+    environment:
+      - PORT=3500
+      - SERVER_SECRET=${SECRET}
+      - ACCOUNTS_URL=http://account:3000
+      - STATS_URL=http://stats:4900
+      - APP_ID=${GITHUB_APPID}
+      - CLIENT_ID=${GITHUB_CLIENTID}
+      - CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - PRIVATE_KEY=${GITHUB_PRIVATE_KEY}
+      - COLLABORATOR_URL=ws${SECURE:+s}://${HOST_ADDRESS}/_collaborator
+      - WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
+      - FRONT_URL=http${SECURE:+s}://${HOST_ADDRESS}
+      - BOT_NAME=${GITHUB_APP_SLUG:-huly}[bot]
     restart: unless-stopped
     networks:
       - huly_net
