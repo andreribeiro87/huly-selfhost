@@ -264,7 +264,7 @@ services:
       - GITHUB_APP=${GITHUB_APP_SLUG}
       - GITHUB_CLIENTID=${GITHUB_CLIENTID}
       - DISABLE_SIGNUP=${DISABLE_SIGNUP:-false}
-      - LIVEKIT_WS=${LIVEKIT_HOST}
+      - LIVEKIT_WS=${LIVEKIT_WS:-${LIVEKIT_HOST}}
     restart: unless-stopped
     networks:
       - huly_net
@@ -348,9 +348,23 @@ services:
       - ACCOUNTS_URL=http://account:3000
       - STORAGE_CONFIG=minio|minio?accessKey=minioadmin&secretKey=minioadmin
       - STORAGE_PROVIDER_NAME=minio
-      - LIVEKIT_HOST=${LIVEKIT_HOST}
+      - LIVEKIT_HOST=${LIVEKIT_HOST:-http://livekit:7880}
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+    restart: unless-stopped
+    networks:
+      - huly_net
+
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: livekit
+    command: --config /etc/livekit.yaml
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      - 7880:7880
+      - 7881:7881
+      - 7882:7882/udp
     restart: unless-stopped
     networks:
       - huly_net
