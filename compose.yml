@@ -323,6 +323,7 @@ services:
       - 3500:3500
     environment:
       - PORT=3500
+      - STORAGE_CONFIG=minio|minio?accessKey=minioadmin&secretKey=minioadmin
       - SERVER_SECRET=${SECRET}
       - ACCOUNTS_URL=http://account:3000
       - STATS_URL=http://stats:4900
