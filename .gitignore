@@ -7,6 +7,7 @@ huly_v7.conf
 .huly.secret
 .cr.secret
 .rp.secret
+.vapid_*.secret
 .idea
 .env
 certs/*.pem

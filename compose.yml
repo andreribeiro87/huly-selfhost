@@ -181,6 +181,7 @@ services:
       - LAST_NAME_FIRST=${LAST_NAME_FIRST:-true}
       - QUEUE_CONFIG=redpanda:9092
       - MAIL_URL=http://mail:8097
+      - WEB_PUSH_URL=http://notification:8091
     restart: unless-stopped
     networks:
       - huly_net
@@ -255,6 +256,7 @@ services:
       - LAST_NAME_FIRST=${LAST_NAME_FIRST:-true}
       - DESKTOP_UPDATES_CHANNEL=${DESKTOP_CHANNEL}
       - DISABLED_FEATURES=auto-translate,mailboxes
+      - PUSH_PUBLIC_KEY=${PUSH_PUBLIC_KEY}
     restart: unless-stopped
     networks:
       - huly_net
@@ -262,7 +264,7 @@ services:
     image: hardcoreeng/mail:${HULY_VERSION}
     container_name: mail
     ports:
-      - 8097
+      - 8097:8097
     environment:
       - PORT=8097
       - SOURCE=${EMAIL_FROM}
@@ -271,6 +273,21 @@ services:
       - SMTP_USERNAME=${SMTP_USERNAME}
       - SMTP_PASSWORD=${SMTP_PASSWORD}
       - SMTP_TLS_MODE=${SMTP_TLS_MODE:-upgrade}
+    restart: unless-stopped
+    networks:
+      - huly_net
+
+  notification:
+    image: hardcoreeng/notification:${HULY_VERSION}
+    container_name: notification
+    ports:
+      - 8091:8091
+    environment:
+      - PORT=8091
+      - SOURCE=${EMAIL_FROM:-support@huly.andreribeiro.pt}
+      - STATS_URL=http://stats:4900
+      - PUSH_PUBLIC_KEY=${PUSH_PUBLIC_KEY}
+      - PUSH_PRIVATE_KEY=${PUSH_PRIVATE_KEY}
     restart: unless-stopped
     networks:
       - huly_net

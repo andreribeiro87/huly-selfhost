@@ -259,6 +259,23 @@ if [ ! -f .rp.secret ]; then
   echo "Secret generated and stored in .rp.secret"
 fi
 
+if [ ! -f .vapid_pub.secret ] || [ ! -f .vapid_priv.secret ] || [ "$SECRET" == true ]; then
+  GEN_SCRIPT="const c=require('crypto');const {publicKey:p,privateKey:s}=c.generateKeyPairSync('ec',{namedCurve:'prime256v1'});const u=p.export({format:'jwk'});const r=s.export({format:'jwk'});console.log(Buffer.concat([Buffer.from([4]),Buffer.from(u.x,'base64url'),Buffer.from(u.y,'base64url')]).toString('base64url'));console.log(Buffer.from(r.d,'base64url').toString('base64url'));"
+  VAPID_KEYS=""
+  if command -v node >/dev/null 2>&1; then
+    VAPID_KEYS=$(node -e "$GEN_SCRIPT" 2>/dev/null || true)
+  elif command -v docker >/dev/null 2>&1; then
+    VAPID_KEYS=$(docker run --rm node:alpine node -e "$GEN_SCRIPT" 2>/dev/null || true)
+  fi
+
+  if [ -n "$VAPID_KEYS" ]; then
+    echo "$VAPID_KEYS" | sed -n '1p' > .vapid_pub.secret
+    echo "$VAPID_KEYS" | sed -n '2p' > .vapid_priv.secret
+    chmod 600 .vapid_pub.secret .vapid_priv.secret
+    echo "VAPID keys generated and stored in .vapid_pub.secret and .vapid_priv.secret"
+  fi
+fi
+
 export HOST_ADDRESS=$_HOST_ADDRESS
 export SECURE=$_SECURE
 export EXTERNAL_SSL=$_EXTERNAL_SSL
@@ -279,6 +296,8 @@ export VOLUME_REDPANDA_PATH=$_VOLUME_REDPANDA_PATH
 export HULY_SECRET=$(cat .huly.secret)
 export COCKROACH_SECRET=$(cat .cr.secret)
 export REDPANDA_SECRET=$(cat .rp.secret)
+export PUSH_PUBLIC_KEY=$(cat .vapid_pub.secret 2>/dev/null || true)
+export PUSH_PRIVATE_KEY=$(cat .vapid_priv.secret 2>/dev/null || true)
 
 envsubst < .template.huly.conf > $CONFIG_FILE
 if [ ! -L ".env" ] || [ "$(readlink .env)" != "$CONFIG_FILE" ]; then
