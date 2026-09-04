@@ -369,6 +369,11 @@ export GITHUB_CLIENTID="${GITHUB_CLIENTID}"
 export GITHUB_CLIENT_SECRET="${GITHUB_CLIENT_SECRET}"
 export GITHUB_WEBHOOK_SECRET="${GITHUB_WEBHOOK_SECRET}"
 
+# Love Service (LiveKit)
+export LIVEKIT_HOST="${LIVEKIT_HOST}"
+export LIVEKIT_API_KEY="${LIVEKIT_API_KEY}"
+export LIVEKIT_API_SECRET="${LIVEKIT_API_SECRET}"
+
 envsubst < .template.huly.conf > $CONFIG_FILE
 if [ ! -L ".env" ] || [ "$(readlink .env)" != "$CONFIG_FILE" ]; then
     rm -f .env
@@ -410,6 +415,11 @@ if [[ -n "$GITHUB_APPID" ]]; then
     echo -e "GitHub Integration: \033[1;32mConfigured (App ID: $GITHUB_APPID)\033[0m"
 else
     echo -e "GitHub Integration: \033[1;33mNot configured\033[0m"
+fi
+if [[ -n "$LIVEKIT_HOST" ]]; then
+    echo -e "Love (Calls/LiveKit): \033[1;32mConfigured ($LIVEKIT_HOST)\033[0m"
+else
+    echo -e "Love (Calls/LiveKit): \033[1;33mNot configured\033[0m"
 fi
 
 echo -e "\n\033[1;32mGenerating containerized nginx.conf...\033[0m"
