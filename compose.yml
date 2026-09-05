@@ -116,44 +116,32 @@ services:
     networks:
       - huly_net
 
-  # mongodb:
-  #   image: mongo:7-jammy
-  #   restart: unless-stopped
-  #   volumes:
-  #     - ${VOLUME_MONGO_PATH:-mongodb}:/data/db
-  #   networks:
-  #     - huly_net
-  #   # Required by aibot and calendar services
+  mongodb:
+    image: mongo:7-jammy
+    restart: unless-stopped
+    volumes:
+      - mongodb:/data/db
+    networks:
+      - huly_net
+    # Required exclusively by aibot service (for AI conversation data)
 
-  # redis:
-  #   image: redis:7-alpine
-  #   command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
-  #   restart: unless-stopped
-  #   networks:
-  #     - huly_net
-  #   # Required by HulyPulse (push notifications / real-time updates)
-
-  # hulypulse:
-  #   image: hardcoreeng/service_hulypulse:${HULY_PULSE_VERSION:-0.1.29}
-  #   ports:
-  #     - 8099:8099
-  #   environment:
-  #     - HULY_BIND_PORT=8099
-  #     - HULY_LOG=info
-  #     - HULY_TOKEN_SECRET=${SECRET}
-  #     - HULY_HEARTBEAT_TIMEOUT=60
-  #     - HULY_BACKEND=memory
-  #     # For Redis backend instead of in-memory (optional, e.g. multi-node setups):
-  #     # - HULY_BACKEND=redis
-  #     # - HULY_REDIS_MODE=direct
-  #     # - HULY_REDIS_URLS=redis://redis:6379
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         memory: 512M
-  #   restart: unless-stopped
-  #   networks:
-  #     - huly_net
+  hulypulse:
+    image: hardcoreeng/service_hulypulse:${HULY_PULSE_VERSION:-0.1.29}
+    ports:
+      - 8099:8099
+    environment:
+      - HULY_BIND_PORT=8099
+      - HULY_LOG=info
+      - HULY_TOKEN_SECRET=${SECRET}
+      - HULY_HEARTBEAT_TIMEOUT=60
+      - HULY_BACKEND=memory
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    restart: unless-stopped
+    networks:
+      - huly_net
 
   rekoni:
     image: hardcoreeng/rekoni-service:${HULY_VERSION}
@@ -182,6 +170,7 @@ services:
       - QUEUE_CONFIG=redpanda:9092
       - MAIL_URL=http://mail:8097
       - WEB_PUSH_URL=http://notification:8091
+      - AI_BOT_URL=http://aibot:4010
     restart: unless-stopped
     networks:
       - huly_net
@@ -258,13 +247,17 @@ services:
       - DEFAULT_LANGUAGE=${DEFAULT_LANGUAGE:-en}
       - LAST_NAME_FIRST=${LAST_NAME_FIRST:-true}
       - DESKTOP_UPDATES_CHANNEL=${DESKTOP_CHANNEL}
-      - DISABLED_FEATURES=auto-translate,mailboxes
+      - DISABLED_FEATURES=${DISABLED_FEATURES:-}
       - PUSH_PUBLIC_KEY=${PUSH_PUBLIC_KEY}
       - GITHUB_URL=http${SECURE:+s}://${HOST_ADDRESS}/_github
       - GITHUB_APP=${GITHUB_APP_SLUG}
       - GITHUB_CLIENTID=${GITHUB_CLIENTID}
       - DISABLE_SIGNUP=${DISABLE_SIGNUP:-false}
       - LIVEKIT_WS=${LIVEKIT_WS:-${LIVEKIT_HOST}}
+      - AI_URL=http${SECURE:+s}://${HOST_ADDRESS}/_aibot
+      - EXPORT_URL=http${SECURE:+s}://${HOST_ADDRESS}/_export
+      - PRINT_URL=http${SECURE:+s}://${HOST_ADDRESS}/_print
+      - PULSE_URL=ws${SECURE:+s}://${HOST_ADDRESS}/_pulse
     restart: unless-stopped
     networks:
       - huly_net
@@ -402,6 +395,81 @@ services:
     environment:
       - HULY_DB_CONNECTION=${CR_DB_URL}
       - HULY_TOKEN_SECRET=${SECRET}
+    restart: unless-stopped
+    networks:
+      - huly_net
+
+  aibot:
+    image: hardcoreeng/ai-bot:${HULY_VERSION}
+    ports:
+      - 4010:4010
+    environment:
+      - PORT=4010
+      - SERVER_SECRET=${SECRET}
+      - ACCOUNTS_URL=http://account:3000
+      - STATS_URL=http://stats:4900
+      - FIRST_NAME=Huly
+      - LAST_NAME=AI
+      - MONGO_URL=mongodb://mongodb:27017
+      - STORAGE_CONFIG=minio|minio?accessKey=minioadmin&secretKey=minioadmin
+      - LOVE_ENDPOINT=http${SECURE:+s}://${HOST_ADDRESS}/_love
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      - OPENAI_MODEL=${OPENAI_MODEL:-deepseek-v4-flash-vision-exp}
+      - OPENAI_SUMMARY_MODEL=${OPENAI_SUMMARY_MODEL:-deepseek-v4-flash-vision-exp}
+      - OPENAI_TRANSLATE_MODEL=${OPENAI_TRANSLATE_MODEL:-deepseek-v4-flash-vision-exp}
+    restart: unless-stopped
+    networks:
+      - huly_net
+
+  exports:
+    image: hardcoreeng/export:${HULY_VERSION}
+    container_name: exports
+    ports:
+      - 4009:4009
+    environment:
+      - PORT=4009
+      - STORAGE_CONFIG=minio|minio?accessKey=minioadmin&secretKey=minioadmin
+      - SECRET=${SECRET}
+      - DB_URL=${CR_DB_URL}
+      - ACCOUNTS_URL=http://account:3000
+      - SERVICE_ID=export-service
+    restart: unless-stopped
+    networks:
+      - huly_net
+
+  print:
+    image: hardcoreeng/print:${HULY_VERSION}
+    container_name: print
+    ports:
+      - 4005:4005
+    environment:
+      - STORAGE_CONFIG=minio|minio?accessKey=minioadmin&secretKey=minioadmin
+      - STATS_URL=http://stats:4900
+      - SECRET=${SECRET}
+      - ACCOUNTS_URL=http://account:3000
+      - FRONT_URL=http${SECURE:+s}://${HOST_ADDRESS}
+    restart: unless-stopped
+    networks:
+      - huly_net
+
+  telegram-bot:
+    image: hardcoreeng/telegram-bot:${HULY_VERSION}
+    container_name: telegram-bot
+    ports:
+      - 4020:4020
+    environment:
+      - PORT=4020
+      - FRONT_URL=http${SECURE:+s}://${HOST_ADDRESS}
+      - ACCOUNTS_URL=http://account:3000
+      - STATS_URL=http://stats:4900
+      - SECRET=${SECRET}
+      - SERVICE_ID=telegram-bot-service
+      - STORAGE_CONFIG=minio|minio?accessKey=minioadmin&secretKey=minioadmin
+      - QUEUE_CONFIG=redpanda:9092
+      - QUEUE_REGION=
+      - BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - BOT_NAME=${TELEGRAM_BOT_NAME}
     restart: unless-stopped
     networks:
       - huly_net

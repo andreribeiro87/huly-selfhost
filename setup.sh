@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 CONFIG_FILE="huly_v7.conf"
 
+# Load existing configuration (.env first, then huly_v7.conf) so existing variables are never lost
+if [ -f ".env" ]; then
+    set -a
+    source ".env"
+    set +a
+elif [ -f "$CONFIG_FILE" ]; then
+    set -a
+    source "$CONFIG_FILE"
+    set +a
+fi
+
 # Parse command line arguments
 RESET_VOLUMES=false
 SECRET=false
@@ -359,7 +370,7 @@ export GOOGLE_CALENDAR_CREDENTIALS="${GOOGLE_CALENDAR_CREDENTIALS}"
 
 # GitHub Integration
 if [ -f "github-private-key.pem" ]; then
-    export GITHUB_PRIVATE_KEY="$(cat github-private-key.pem)"
+    export GITHUB_PRIVATE_KEY="$(awk '{printf "%s\\n", $0}' github-private-key.pem | sed 's/\\n$//')"
 else
     export GITHUB_PRIVATE_KEY="${GITHUB_PRIVATE_KEY}"
 fi
@@ -375,10 +386,79 @@ export LIVEKIT_WS="${LIVEKIT_WS}"
 export LIVEKIT_API_KEY="${LIVEKIT_API_KEY}"
 export LIVEKIT_API_SECRET="${LIVEKIT_API_SECRET}"
 
-envsubst < .template.huly.conf > $CONFIG_FILE
-if [ ! -L ".env" ] || [ "$(readlink .env)" != "$CONFIG_FILE" ]; then
-    rm -f .env
-    cp "$CONFIG_FILE" .env
+# AI Assistant & MongoDB
+export OPENAI_API_KEY="${OPENAI_API_KEY}"
+export OPENAI_BASE_URL="${OPENAI_BASE_URL}"
+export OPENAI_MODEL="${OPENAI_MODEL:-deepseek-v4-flash-vision-exp}"
+export OPENAI_SUMMARY_MODEL="${OPENAI_SUMMARY_MODEL:-deepseek-v4-flash-vision-exp}"
+export OPENAI_TRANSLATE_MODEL="${OPENAI_TRANSLATE_MODEL:-deepseek-v4-flash-vision-exp}"
+
+
+# HulyPulse
+export HULY_PULSE_VERSION="${HULY_PULSE_VERSION:-0.1.29}"
+
+# Telegram Bot
+export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
+export TELEGRAM_BOT_NAME="${TELEGRAM_BOT_NAME}"
+
+TMP_CONF=$(mktemp)
+envsubst < .template.huly.conf > "$TMP_CONF"
+
+# Safely update .env and $CONFIG_FILE preserving all existing values, custom keys, and secrets
+if [ -f ".env" ]; then
+    node -e '
+    const fs = require("fs");
+    const currentLines = fs.readFileSync(".env", "utf8").split(/\r?\n/);
+    const tmplLines = fs.readFileSync(process.argv[1], "utf8").split(/\r?\n/);
+
+    const currentVars = new Map();
+    for (const line of currentLines) {
+        const match = line.match(/^([A-Za-z0-9_]+)=(.*)$/);
+        if (match) {
+            currentVars.set(match[1], match[2]);
+        }
+    }
+
+    const resultLines = [];
+    const processedKeys = new Set();
+
+    for (const line of tmplLines) {
+        const match = line.match(/^([A-Za-z0-9_]+)=(.*)$/);
+        if (match) {
+            const key = match[1];
+            processedKeys.add(key);
+            const tmplVal = match[2];
+            if (currentVars.has(key) && currentVars.get(key) !== "" && tmplVal === "") {
+                resultLines.push(`${key}=${currentVars.get(key)}`);
+            } else {
+                resultLines.push(line);
+            }
+        } else {
+            resultLines.push(line);
+        }
+    }
+
+    const customLines = [];
+    for (const [key, val] of currentVars.entries()) {
+        if (!processedKeys.has(key)) {
+            customLines.push(`${key}=${val}`);
+        }
+    }
+    if (customLines.length > 0) {
+        resultLines.push("");
+        resultLines.push("# Custom / User-defined variables");
+        resultLines.push(...customLines);
+    }
+
+    const merged = resultLines.join("\n");
+    fs.writeFileSync(".env", merged);
+    fs.writeFileSync(process.argv[2], merged);
+    ' "$TMP_CONF" "$CONFIG_FILE"
+    rm -f "$TMP_CONF"
+else
+    cp "$TMP_CONF" "$CONFIG_FILE"
+    cp "$TMP_CONF" .env
+    rm -f "$TMP_CONF"
 fi
 
 source "$CONFIG_FILE"
