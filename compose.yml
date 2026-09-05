@@ -18,16 +18,16 @@ services:
     networks:
       - huly_net
 
-  # cloudflared:
-  #   image: cloudflare/cloudflared:latest
-  #   restart: unless-stopped
-  #   env_file:
-  #     - .env.cloudflare
-  #   command: tunnel run
-  #   volumes:
-  #     - ./cloudflared:/etc/cloudflared:ro
-  #   networks:
-  #     - huly_net
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    env_file:
+      - .env.cloudflare
+    command: tunnel run
+    volumes:
+      - ./cloudflared:/etc/cloudflared:ro
+    networks:
+      - huly_net
 
   cockroach:
     image: cockroachdb/cockroach:latest-v24.2
