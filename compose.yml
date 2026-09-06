@@ -475,6 +475,22 @@ services:
     networks:
       - huly_net
 
+  process:
+    image: hardcoreeng/process:${HULY_VERSION}
+    container_name: process
+    environment:
+      - SECRET=${SECRET}
+      - QUEUE_CONFIG=redpanda:9092
+      - QUEUE_REGION=
+      - ACCOUNTS_URL=http://account:3000
+      - STATS_URL=http://stats:4900
+      - COLLABORATOR_URL=ws${SECURE:+s}://${HOST_ADDRESS}/_collaborator
+      - TEMPORAL_ADDRESS=${TEMPORAL_ADDRESS:-localhost:7233}
+      - TEMPORAL_NAMESPACE=${TEMPORAL_NAMESPACE:-huly}
+    restart: unless-stopped
+    networks:
+      - huly_net
+
 volumes:
   # These named volumes are used when custom volume paths are not specified
   # If VOLUME_*_PATH variables are set, these volumes will be ignored
